@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?><!--
+    Copyright 2011 Hippo Licensed under the Apache License, Version 2.0
+    (the "License"); you may not use this file except in compliance with
+    the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0 Unless required by
+    applicable law or agreed to in writing, software distributed under
+    the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES
+    OR CONDITIONS OF ANY KIND, either express or implied. See the
+    License for the specific language governing permissions and
+    limitations under the License.
+  --><!DOCTYPE document PUBLIC "-//Apache Software Foundation//DTD XDOC 1.0//EN"
+  "http://maven.apache.org/dtd/xdoc_1_0.dtd">
+<document>
+  <properties>
+    <title>Demo 1: Solr Search Engine Integration</title>
+  </properties>
+  <body>
+
+    <section name="Demo 1: Solr Search Engine Integration">
+
+      <subsection name="Overview">
+        <p>
+        </p>
+        <table>
+          <tr>
+            <th>Route name</th>
+            <th>Description</th>
+          </tr>
+          <tr>
+            <td>
+              Route-HippoEventBus-to-File
+            </td>
+            <td>
+              Receives an HippoEventBus event and store it into a file under the inbox folder.
+            </td>
+          </tr>
+        </table>
+        <p>
+          <img src="images/hippoevt-to-file.png" alt="Hippo Event to File" />
+        </p>
+        <table>
+          <tr>
+            <th>Route name</th>
+            <th>Description</th>
+          </tr>
+          <tr>
+            <td>
+              Route-File-to-Rest
+            </td>
+            <td>
+              Polls the inbox folder to read a JSON message file and invokes the specified REST service URL.
+            </td>
+          </tr>
+        </table>
+        <p>
+          <img src="images/file-to-rest.png" alt="Hippo Event to File" />
+        </p>
+      </subsection>
+
+      <subsection name="Running the Demo">
+        <p>
+          To test this scenario, execute the following in the project root folder:
+        </p>
+        <div class="brush: bash">
+        <source><![CDATA[
+$ mvn clean package
+$ mvn -P cargo.run
+        ]]></source>
+        </div>
+        <p>
+          Or you can set the test search engine explicitly:
+        </p>
+        <div class="brush: bash">
+        <source><![CDATA[
+$ mvn clean package
+$ mvn -P cargo.run -Dcargo.jvm.args="-Dsearch.engine=solr"
+        ]]></source>
+        </div>
+      </subsection>
+
+
+      <subsection name="Testing the Demo">
+        <p>
+          In CMS UI, try to open a published document and take it offline and re-publish the document.
+        </p>
+        <p>
+          <img src="images/cms-publish.png" alt="Publishsing a document in CMS" />
+        </p>
+        <p>
+          Now, try to search the content in the Search Engine frontend UI
+          (<a href="http://localhost:8080/solr/" target="_blank">http://localhost:8080/solr/</a>).
+        </p>
+        <p>
+          <img src="images/solr-search.png" alt="Querying in Search Engine Frontend" />
+        </p>
+        <p>
+          Retry to take a document offline or publish an unpublished document and see those synchronized in the
+          search engines properly.
+        </p>
+      </subsection>
+
+      <subsection name="Camel Context Configuration in the demo project">
+        <p>
+          The CamelContext configuration is placed in cms/WEB-INF/camel/routes-with-file.xml like the following example
+          which is initiated by <code>org.springframework.web.context.ContextLoaderListener</code> defined in
+          a &lt;listener&gt; element in cms/WEB-INF/web.xml.
+        </p>
+        <div class="brush: xml">
+        <source><![CDATA[
+  <camelContext xmlns="http://camel.apache.org/schema/spring">
+
+    <route id="Route-HippoEventBus-to-File">
+
+      <!-- Subscribe publish/depublish events as JSON from HippoEventBus. -->
+      <from uri="hippoevent:?category=workflow&amp;methodName=publish,depublish" />
+
+      <!-- Convert the JSON message to String. -->
+      <convertBodyTo type="java.lang.String" />
+
+      <!-- Store the JSON string to a file in the 'inbox' folder. -->
+      <to uri="file:inbox?autoCreate=true&amp;charset=utf-8" />
+
+    </route>
+
+    <route id="Route-File-to-REST">
+
+      <!-- Subscribe file events from the 'inbox' folder. -->
+      <from uri="file:inbox?autoCreate=true&amp;charset=utf-8&amp;preMove=.processing&amp;delete=true&amp;moveFailed=.error" />
+
+      <!-- Convert the file message to String. -->
+      <convertBodyTo type="java.lang.String" />
+
+      <!-- Convert the JSON string to JSON object. -->
+      <convertBodyTo type="net.sf.json.JSON" />
+
+      <!-- Set HTTP header to 'POST'. -->
+      <setHeader headerName="CamelHttpMethod">
+        <constant>POST</constant>
+      </setHeader>
+
+      <!-- Set HTTP query string based on the workflow event message. -->
+      <choice>
+        <when>
+          <simple>${body[methodName]} == 'publish'</simple>
+          <setHeader headerName="CamelHttpQuery">
+            <simple>action=index&amp;id=${body[subjectId]}</simple>
+          </setHeader>
+        </when>
+        <when>
+          <simple>${body[methodName]} == 'depublish'</simple>
+          <setHeader headerName="CamelHttpQuery">
+            <simple>action=delete&amp;id=${body[subjectId]}</simple>
+          </setHeader>
+        </when>
+      </choice>
+
+      <!-- Invoke the Solr Index synchronization REST service. -->
+      <to uri="http4://localhost:8080/site/restapi/{{search.engine}}/update/" />
+
+    </route>
+
+  </camelContext>
+          ]]></source>
+        </div>
+      </subsection>
+
+    </section>
+
+  </body>
+</document>
